@@ -138,11 +138,30 @@ def bar_title(text):
 
 
 # ---------------- 머리말: 정류장 표지판 ----------------
-BUS_SVG = """<svg width="66" height="66" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-<rect x="8" y="6" width="48" height="44" rx="9" fill="#fff"/><rect x="13" y="13" width="38" height="17" rx="3" fill="#1d3f7a"/>
-<rect x="13" y="34" width="9" height="5" rx="2" fill="#ffc93c"/><rect x="42" y="34" width="9" height="5" rx="2" fill="#ffc93c"/>
-<rect x="24" y="9" width="16" height="2.5" rx="1.2" fill="#1d3f7a"/><rect x="12" y="49" width="10" height="8" rx="3" fill="#fff"/>
-<rect x="42" y="49" width="10" height="8" rx="3" fill="#fff"/></svg>"""
+BUS_SVG = """<svg width="150" height="78" viewBox="0 0 150 78" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+<!-- 옆에서 본 서울 파란 버스 -->
+<rect x="2" y="10" width="104" height="50" rx="10" fill="#3b6fc4"/>
+<rect x="2" y="44" width="104" height="8" fill="#2a5ba8"/>
+<rect x="10" y="17" width="16" height="17" rx="3" fill="#dff0ff"/>
+<rect x="30" y="17" width="16" height="17" rx="3" fill="#dff0ff"/>
+<rect x="50" y="17" width="16" height="17" rx="3" fill="#dff0ff"/>
+<rect x="72" y="17" width="12" height="33" rx="2" fill="#dff0ff" stroke="#2a5ba8" stroke-width="1.5"/>
+<line x1="78" y1="17" x2="78" y2="50" stroke="#2a5ba8" stroke-width="1.5"/>
+<rect x="88" y="17" width="14" height="17" rx="3" fill="#dff0ff"/>
+<rect x="98" y="38" width="7" height="5" rx="1.5" fill="#ffc93c"/>
+<rect x="12" y="38" width="22" height="4" rx="2" fill="#ffffff" opacity="0.9"/>
+<circle cx="24" cy="61" r="9" fill="#1f2733"/><circle cx="24" cy="61" r="4" fill="#c9ced6"/>
+<circle cx="86" cy="61" r="9" fill="#1f2733"/><circle cx="86" cy="61" r="4" fill="#c9ced6"/>
+<!-- 정류장 표지 기둥 -->
+<rect x="124" y="14" width="3" height="58" fill="#c9ced6"/>
+<rect x="116" y="6" width="19" height="19" rx="4" fill="#ffc93c"/>
+<rect x="120" y="11" width="11" height="7" rx="2" fill="#1d3f7a"/>
+<rect x="121" y="19" width="2.5" height="2.5" rx="1" fill="#1d3f7a"/><rect x="127.5" y="19" width="2.5" height="2.5" rx="1" fill="#1d3f7a"/>
+<!-- 정류장 옆 작은 유령 -->
+<path d="M134 52 q0 -14 8 -14 q8 0 8 14 v14 l-2.7 -3 l-2.6 3 l-2.7 -3 l-2.7 3 l-2.6 -3 l-2.7 3 z" fill="#ffffff" opacity="0.95"/>
+<circle cx="139.5" cy="49" r="1.6" fill="#1d3f7a"/><circle cx="144.5" cy="49" r="1.6" fill="#1d3f7a"/>
+<line x1="0" y1="72" x2="150" y2="72" stroke="#ffffff" stroke-opacity="0.35" stroke-width="2" stroke-dasharray="8 6"/>
+</svg>"""
 st.markdown(f"""
 <div class="stop-sign"><div>{BUS_SVG}</div><div>
   <span class="num">서울 시내버스 · 2026년 10월</span>
@@ -243,12 +262,15 @@ with tab1:
 
     # ---- 그래프 2: 구별 막대 ----
     gu = base.groupby("구").agg(전체=("유령", "size"), 유령=("유령", "sum")).drop("서울 밖", errors="ignore").reset_index()
+    cand_by_gu = base[base["유령"] & base["대안가까움"]].groupby("구").size()
+    gu["정리 검토 후보"] = gu["구"].map(cand_by_gu).fillna(0).astype(int)
+    gu["지켜야 할 유령"] = gu["유령"] - gu["정리 검토 후보"]
     gu["비율"] = gu["유령"] / gu["전체"] * 100
     corr = gu["전체"].corr(gu["유령"]) if len(gu) > 2 else float("nan")
     top_ratio = gu.sort_values("비율", ascending=False).iloc[0]
     zero = gu[gu["유령"] == 0]["구"].tolist()
     section("02", "정류장이 많다고 유령도 많은 건 아니다",
-            f"막대는 유령 정류장 수, 글자는 그 구의 전체 정류장 중 몇 곳인지예요. "
+            f"막대는 구별 유령 정류장 수예요. 파랑은 정리 검토 후보, 주황은 지켜야 할 유령이고, 끝의 글자는 그 구 전체 정류장 중 몇 곳인지예요. "
             f"정류장 수와 유령 수의 상관계수는 {corr:.2f}로 딱 비례하지는 않아요. "
             f"비율이 가장 높은 곳은 {top_ratio['구']}({top_ratio['비율']:.1f}%)"
             + (f", 유령이 한 곳도 없는 구는 {', '.join(zero)}예요." if zero else "예요."))
@@ -258,19 +280,23 @@ with tab1:
         sort_by = s1.selectbox("정렬", ["유령 정류장 많은 순", "유령 비율 높은 순", "전체 정류장 많은 순"])
     key = {"유령 정류장 많은 순": "유령", "유령 비율 높은 순": "비율", "전체 정류장 많은 순": "전체"}[sort_by]
     gu = gu.sort_values(key)
-    colors = [NAVY if g == pick_gu else BLUE for g in gu["구"]]
-    if pick_gu != "서울 전체":
-        colors = [NAVY if g == pick_gu else "#9dc8f7" for g in gu["구"]]
-    fig2 = go.Figure(go.Bar(
-        x=gu["유령"], y=gu["구"], orientation="h", marker=dict(color=colors, line=dict(color="white", width=2)),
-        text=[f"  전체 {t:,}곳 중 {g}곳 ({r:.1f}%)" for t, g, r in zip(gu["전체"], gu["유령"], gu["비율"])],
-        textposition="outside", textfont=dict(size=12, color=MUTED), cliponaxis=False,
-        hovertemplate="<b>%{y}</b><br>유령 %{x}곳<extra></extra>", name="유령 정류장 수"))
-    fig2.update_layout(height=max(420, 26 * len(gu)), xaxis=dict(title="유령 정류장 수 (곳)", range=[0, gu["유령"].max() * 1.6 + 1]),
-                       yaxis=dict(title=None), showlegend=False)
+    ylab = [f"▶ {g}" if g == pick_gu else g for g in gu["구"]]
+    fig2 = go.Figure()
+    for name, color in [("정리 검토 후보", BLUE), ("지켜야 할 유령", ORANGE)]:
+        fig2.add_trace(go.Bar(
+            x=gu[name], y=ylab, orientation="h", name=f"{name} ({'걸어서 ' + str(walk_max) + '분 이내 대안' if color == BLUE else str(walk_max) + '분 넘음'})",
+            marker=dict(color=color, line=dict(color="white", width=1.5)),
+            hovertemplate="<b>%{y}</b><br>" + name + " %{x}곳<extra></extra>"))
+    fig2.add_trace(go.Scatter(
+        x=gu["유령"], y=ylab, mode="text", showlegend=False, hoverinfo="skip",
+        text=[f"   전체 {t:,}곳 중 {g}곳 ({r:.1f}%)" for t, g, r in zip(gu["전체"], gu["유령"], gu["비율"])],
+        textposition="middle right", textfont=dict(size=12, color=MUTED), cliponaxis=False))
+    fig2.update_layout(barmode="stack", height=max(440, 26 * len(gu)), bargap=0.25,
+                       xaxis=dict(title="유령 정류장 수 (곳)", range=[0, gu["유령"].max() * 1.6 + 1]),
+                       yaxis=dict(title=None), legend=dict(orientation="h", y=1.04, x=0, traceorder="normal"))
     st.plotly_chart(fig2, width="stretch", config=CHART_CFG)
     if pick_gu != "서울 전체":
-        st.markdown(f'<p class="foot">진한 막대가 고른 구({pick_gu})예요. 이 그래프는 비교를 위해 늘 서울 전체 구를 보여 줘요.</p>',
+        st.markdown(f'<p class="foot">▶ 표시가 고른 구({pick_gu})예요. 이 그래프는 비교를 위해 늘 서울 전체 구를 보여 줘요.</p>',
                     unsafe_allow_html=True)
 
 # ======================= 탭 2: 왜 비었을까 =======================
