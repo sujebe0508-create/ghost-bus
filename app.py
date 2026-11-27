@@ -276,23 +276,39 @@ with tab1:
             + (f", 유령이 한 곳도 없는 구는 {', '.join(zero)}예요." if zero else "예요."))
     with st.container(key="chart_bar_gu"):
         bar_title("이 그래프에만 걸리는 조건")
-        s1, _ = st.columns([1, 3])
-        sort_by = s1.selectbox("정렬", ["유령 정류장 많은 순", "유령 비율 높은 순", "전체 정류장 많은 순"])
-    key = {"유령 정류장 많은 순": "유령", "유령 비율 높은 순": "비율", "전체 정류장 많은 순": "전체"}[sort_by]
-    gu = gu.sort_values(key)
+        s1, s2, _ = st.columns([1, 1, 2])
+        view = s1.selectbox("무엇을 볼까?", ["유령 전체 (파랑 + 주황)", "지켜야 할 유령만 (주황)"],
+                            help="주황은 수가 적어서 전체와 같이 보면 얇아요. '지켜야 할 유령만'을 고르면 눈금이 주황에 맞춰 커져요.")
+        sort_by = s2.selectbox("정렬", ["유령 정류장 많은 순", "지켜야 할 유령 많은 순", "유령 비율 높은 순", "전체 정류장 많은 순"])
+    key = {"유령 정류장 많은 순": "유령", "지켜야 할 유령 많은 순": "지켜야 할 유령",
+           "유령 비율 높은 순": "비율", "전체 정류장 많은 순": "전체"}[sort_by]
+    only_keep = view.startswith("지켜야")
+    if only_keep:
+        gu = gu[gu["지켜야 할 유령"] > 0]
+        key = "지켜야 할 유령" if key in ("유령", "비율") else key
+    gu = gu.sort_values([key, "유령"])
     ylab = [f"▶ {g}" if g == pick_gu else g for g in gu["구"]]
     fig2 = go.Figure()
-    for name, color in [("정리 검토 후보", BLUE), ("지켜야 할 유령", ORANGE)]:
+    series = [("지켜야 할 유령", ORANGE)] if only_keep else [("정리 검토 후보", BLUE), ("지켜야 할 유령", ORANGE)]
+    for name, color in series:
         fig2.add_trace(go.Bar(
-            x=gu[name], y=ylab, orientation="h", name=f"{name} ({'걸어서 ' + str(walk_max) + '분 이내 대안' if color == BLUE else str(walk_max) + '분 넘음'})",
-            marker=dict(color=color, line=dict(color="white", width=1.5)),
+            x=gu[name], y=ylab, orientation="h",
+            name=f"{name} ({'걸어서 ' + str(walk_max) + '분 이내 대안' if color == BLUE else '대안까지 ' + str(walk_max) + '분 넘음'})",
+            marker=dict(color=color, line=dict(width=0)),
             hovertemplate="<b>%{y}</b><br>" + name + " %{x}곳<extra></extra>"))
-    fig2.add_trace(go.Scatter(
-        x=gu["유령"], y=ylab, mode="text", showlegend=False, hoverinfo="skip",
-        text=[f"   전체 {t:,}곳 중 {g}곳 ({r:.1f}%)" for t, g, r in zip(gu["전체"], gu["유령"], gu["비율"])],
-        textposition="middle right", textfont=dict(size=12, color=MUTED), cliponaxis=False))
-    fig2.update_layout(barmode="stack", height=max(440, 26 * len(gu)), bargap=0.25,
-                       xaxis=dict(title="유령 정류장 수 (곳)", range=[0, gu["유령"].max() * 1.6 + 1]),
+    if only_keep:
+        labels2 = [f"   {k}곳 (유령 {g}곳 중)" for k, g in zip(gu["지켜야 할 유령"], gu["유령"])]
+        xend = gu["지켜야 할 유령"]
+    else:
+        labels2 = [f"   전체 {t:,}곳 중 {g}곳 ({r:.1f}%)" + (f" · 주황 {k}곳" if k else "")
+                   for t, g, r, k in zip(gu["전체"], gu["유령"], gu["비율"], gu["지켜야 할 유령"])]
+        xend = gu["유령"]
+    fig2.add_trace(go.Scatter(x=xend, y=ylab, mode="text", showlegend=False, hoverinfo="skip", text=labels2,
+                              textposition="middle right", textfont=dict(size=12, color=MUTED), cliponaxis=False))
+    xmax = max(1, xend.max()) if len(gu) else 1
+    fig2.update_layout(barmode="stack", height=max(300, 28 * len(gu) + 80), bargap=0.3,
+                       xaxis=dict(title="지켜야 할 유령 수 (곳)" if only_keep else "유령 정류장 수 (곳)",
+                                  range=[0, xmax * (1.9 if only_keep else 1.75) + 0.5], dtick=1 if only_keep else None),
                        yaxis=dict(title=None), legend=dict(orientation="h", y=1.04, x=0, traceorder="normal"))
     st.plotly_chart(fig2, width="stretch", config=CHART_CFG)
     if pick_gu != "서울 전체":
