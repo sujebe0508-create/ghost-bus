@@ -269,11 +269,9 @@ with tab1:
     corr = gu["전체"].corr(gu["유령"]) if len(gu) > 2 else float("nan")
     top_ratio = gu.sort_values("비율", ascending=False).iloc[0]
     zero = gu[gu["유령"] == 0]["구"].tolist()
-    section("02", "정류장이 많다고 유령도 많은 건 아니다",
-            f"막대는 구별 유령 정류장 수예요. 파랑은 정리 검토 후보, 주황은 지켜야 할 유령이고, 끝의 글자는 그 구 전체 정류장 중 몇 곳인지예요. "
-            f"정류장 수와 유령 수의 상관계수는 {corr:.2f}로 딱 비례하지는 않아요. "
-            f"비율이 가장 높은 곳은 {top_ratio['구']}({top_ratio['비율']:.1f}%)"
-            + (f", 유령이 한 곳도 없는 구는 {', '.join(zero)}예요." if zero else "예요."))
+    section("02-1", "구마다 유령 정류장은 몇 곳일까",
+            "막대는 구별 유령 정류장 수예요. 파랑은 정리 검토 후보, 주황은 지켜야 할 유령이고, "
+            "끝의 글자는 그 구 전체 정류장 중 몇 곳인지예요.")
     with st.container(key="chart_bar_gu"):
         bar_title("이 그래프에만 걸리는 조건")
         s1, s2, _ = st.columns([1, 1, 2])
@@ -314,6 +312,63 @@ with tab1:
     if pick_gu != "서울 전체":
         st.markdown(f'<p class="foot">▶ 표시가 고른 구({pick_gu})예요. 이 그래프는 비교를 위해 늘 서울 전체 구를 보여 줘요.</p>',
                     unsafe_allow_html=True)
+
+    # ---- 그래프 02-2: 전체 정류장 수 × 유령 정류장 수 ----
+    rel = base.groupby("구").agg(전체=("유령", "size"), 유령=("유령", "sum")).drop("서울 밖", errors="ignore").reset_index()
+    avg_rate = rel["유령"].sum() / rel["전체"].sum() if rel["전체"].sum() else 0
+    rel["기대"] = rel["전체"] * avg_rate
+    rel["차이"] = rel["유령"] - rel["기대"]
+    corr2 = rel["전체"].corr(rel["유령"]) if len(rel) > 2 else float("nan")
+    over = rel.sort_values("차이", ascending=False).head(2)
+    under = rel.sort_values("차이").head(2)
+    section("02-2", "정류장이 많다고 유령도 많은 건 아니다",
+            f"점 하나가 구 하나예요. 점선은 서울 평균 비율({avg_rate * 100:.1f}%)대로라면 있어야 할 유령 수예요. "
+            f"점선보다 위에 있으면 정류장 수에 비해 유령이 많은 구, 아래면 적은 구예요. "
+            f"상관계수는 {corr2:.2f}로 같이 늘기는 하지만 딱 비례하지는 않아요. "
+            f"평균보다 많이 튀는 곳은 {over.iloc[0]['구']}, {over.iloc[1]['구']}, 가장 적은 곳은 {under.iloc[0]['구']}, {under.iloc[1]['구']}예요.")
+    xmin_r, xmax_r = max(0, rel["전체"].min() - 40), rel["전체"].max() * 1.06
+    ymax_r = max(rel["유령"].max(), xmax_r * avg_rate) * 1.15 + 1
+
+    # 이름표가 겹치지 않게 위/아래/오른쪽/왼쪽 중 빈자리를 고른다(대략 픽셀을 데이터 단위로 바꿔 계산)
+    px_x = (xmax_r - xmin_r) / 950
+    px_y = (ymax_r + 2) / 360
+    # 점 자체도 장애물로 넣어 이름표가 다른 점을 덮지 않게 한다
+    placed = [(x - 6 * px_x, y - 6 * px_y, x + 6 * px_x, y + 6 * px_y) for x, y in zip(rel["전체"], rel["유령"])]
+    positions = {}
+    for r in rel.sort_values("유령", ascending=False).itertuples():
+        w, h = len(r.구) * 12 * px_x, 14 * px_y
+        cands = {"top center": (r.전체 - w / 2, r.유령 + 7 * px_y), "bottom center": (r.전체 - w / 2, r.유령 - 7 * px_y - h),
+                 "middle right": (r.전체 + 8 * px_x, r.유령 - h / 2), "middle left": (r.전체 - 8 * px_x - w, r.유령 - h / 2)}
+        choice = "top center"
+        for pos, (x0, y0) in cands.items():
+            box = (x0, y0, x0 + w, y0 + h)
+            if all(box[2] < b[0] or box[0] > b[2] or box[3] < b[1] or box[1] > b[3] for b in placed):
+                choice = pos
+                break
+        x0, y0 = cands[choice]
+        placed.append((x0, y0, x0 + w, y0 + h))
+        positions[r.구] = choice
+    fig_r = go.Figure()
+    fig_r.add_trace(go.Scatter(x=[xmin_r, xmax_r], y=[xmin_r * avg_rate, xmax_r * avg_rate], mode="lines", name=f"서울 평균 비율 {avg_rate * 100:.1f}%",
+                               line=dict(color=MUTED, dash="dash", width=2), hoverinfo="skip"))
+    sel = rel["구"] == pick_gu
+    fig_r.add_trace(go.Scatter(
+        x=rel["전체"], y=rel["유령"], mode="markers+text", name="구",
+        text=rel["구"], textposition=[positions[g] for g in rel["구"]], textfont=dict(size=11, color=INK),
+        marker=dict(size=[16 if v else 11 for v in sel], color=[NAVY if v else BLUE for v in sel],
+                    line=dict(color="white", width=2)),
+        customdata=rel[["비율" if "비율" in rel else "유령", "기대"]].assign(비율=rel["유령"] / rel["전체"] * 100)[["비율", "기대"]].values,
+        hovertemplate="<b>%{text}</b><br>전체 %{x}곳 중 유령 %{y}곳 (%{customdata[0]:.1f}%)"
+                      "<br>평균대로라면 %{customdata[1]:.1f}곳<extra></extra>"))
+    fig_r.add_annotation(x=xmin_r + (xmax_r - xmin_r) * 0.02, y=ymax_r * 0.95, text="▲ 평균보다 유령이 많은 쪽", showarrow=False,
+                         xanchor="left", font=dict(color=MUTED, size=12))
+    fig_r.add_annotation(x=xmax_r * 0.99, y=-1.5, text="평균보다 유령이 적은 쪽 ▼", showarrow=False,
+                         xanchor="right", yanchor="bottom", font=dict(color=MUTED, size=12))
+    fig_r.update_layout(height=480, showlegend=True,
+                        xaxis=dict(title="구의 전체 정류장 수 (곳)", range=[xmin_r, xmax_r]),
+                        yaxis=dict(title="구의 유령 정류장 수 (곳)", range=[-2, ymax_r]),
+                        legend=dict(orientation="h", y=1.06, x=0))
+    st.plotly_chart(fig_r, width="stretch", config=CHART_CFG)
 
 # ======================= 탭 2: 왜 비었을까 =======================
 with tab2:
